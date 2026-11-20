@@ -44,8 +44,8 @@ app.get('/api/v1/health', async (req, res, next) => {
   }
 });
 
-// const routes = require('./routes');
-// app.use('/api/v1', routes);
+const routes = require('./routes');
+app.use('/api/v1', routes);
 
 // ==================== JSON SYNTAX ERROR HANDLER ====================
 app.use((err, req, res, next) => {
