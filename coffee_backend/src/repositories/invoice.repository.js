@@ -1,48 +1,82 @@
-
+const crypto = require("crypto");
 const { sql, poolPromise } = require("../config/db");
-const { randomUUID } = require("crypto");
 
-// Lấy quy tắc tích điểm đang có hiệu lực
-async function findActivePointRule() {
-    const pool = await poolPromise;
-
-    const result = await pool.request().query(`
-        SELECT TOP 1 *
-        FROM PointRules
-        WHERE status = 'ACTIVE'
-          AND startDate <= GETDATE()
-          AND (endDate IS NULL OR endDate >= GETDATE())
-        ORDER BY startDate DESC
-    `);
-
-    return result.recordset[0] || null;
+function createError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
 }
 
-// Tạo hóa đơn và chi tiết hóa đơn
+// Lấy chi tiết hóa đơn
+async function findInvoiceById(invoiceId) {
+    const pool = await poolPromise;
+
+    const invoiceResult = await pool.request()
+        .input("invoiceId", sql.VarChar(36), invoiceId)
+        .query(`
+            SELECT
+                i.invoiceId,
+                i.customerId,
+                customer.fullName AS customerName,
+                i.staffId,
+                staff.fullName AS staffName,
+                i.ruleId,
+                i.invoiceDate,
+                i.totalAmount,
+                i.totalPoint,
+                i.paymentStatus
+            FROM Invoices i
+            INNER JOIN Users customer ON customer.userId = i.customerId
+            INNER JOIN Users staff ON staff.userId = i.staffId
+            WHERE i.invoiceId = @invoiceId
+        `);
+
+    if (invoiceResult.recordset.length === 0) {
+        return null;
+    }
+
+    const detailResult = await pool.request()
+        .input("invoiceId", sql.VarChar(36), invoiceId)
+        .query(`
+            SELECT
+                d.invoiceDetailId,
+                d.productId,
+                p.productName,
+                d.quantity,
+                d.unitPrice,
+                d.discount,
+                (d.quantity * d.unitPrice - d.discount) AS lineTotal
+            FROM InvoiceDetails d
+            INNER JOIN Products p ON p.productId = d.productId
+            WHERE d.invoiceId = @invoiceId
+        `);
+
+    return {
+        ...invoiceResult.recordset[0],
+        details: detailResult.recordset
+    };
+}
+
+// Tạo hóa đơn mới
 async function createInvoice(data) {
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
 
-    try {
-        await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-        // Kiểm tra khách hàng
+    try {
         const customerResult = await new sql.Request(transaction)
             .input("customerId", sql.VarChar(36), data.customerId)
             .query(`
                 SELECT userId
-                FROM Customers
+                FROM Customers WITH (UPDLOCK, HOLDLOCK)
                 WHERE userId = @customerId
             `);
 
         if (customerResult.recordset.length === 0) {
-            const error = new Error("Không tìm thấy khách hàng");
-            error.statusCode = 404;
-            error.code = "CUSTOMER_NOT_FOUND";
-            throw error;
+            throw createError("Khách hàng không tồn tại", "CUSTOMER_NOT_FOUND");
         }
 
-        // Kiểm tra nhân viên
         const staffResult = await new sql.Request(transaction)
             .input("staffId", sql.VarChar(36), data.staffId)
             .query(`
@@ -52,13 +86,10 @@ async function createInvoice(data) {
             `);
 
         if (staffResult.recordset.length === 0) {
-            const error = new Error("Không tìm thấy nhân viên");
-            error.statusCode = 404;
-            error.code = "STAFF_NOT_FOUND";
-            throw error;
+            throw createError("Nhân viên không tồn tại", "STAFF_NOT_FOUND");
         }
 
-        // Lấy quy tắc tích điểm hiện hành
+        // Lấy PointRule đang có hiệu lực để lưu cố định vào hóa đơn
         const ruleResult = await new sql.Request(transaction).query(`
             SELECT TOP 1 ruleId
             FROM PointRules
@@ -69,63 +100,45 @@ async function createInvoice(data) {
         `);
 
         if (ruleResult.recordset.length === 0) {
-            const error = new Error(
-                "Hiện chưa có quy tắc tích điểm đang có hiệu lực"
-            );
-            error.statusCode = 409;
-            error.code = "ACTIVE_POINT_RULE_NOT_FOUND";
-            throw error;
+            throw createError("Hiện không có quy tắc tích điểm đang áp dụng","POINT_RULE_NOT_FOUND");
         }
 
         const ruleId = ruleResult.recordset[0].ruleId;
+        const invoiceId = crypto.randomUUID();
 
-        let totalAmount = 0;
+        let totalAmountCents = 0;
         const invoiceDetails = [];
-
-        // Kiểm tra sản phẩm và lấy giá từ database
         for (const item of data.items) {
             const productResult = await new sql.Request(transaction)
                 .input("productId", sql.VarChar(36), item.productId)
                 .query(`
-                    SELECT productId, price
+                    SELECT productId, productName, price
                     FROM Products
                     WHERE productId = @productId
                       AND status = 'ACTIVE'
                 `);
-
             if (productResult.recordset.length === 0) {
-                const error = new Error(
-                    `Sản phẩm ${item.productId} không tồn tại hoặc đã ngừng kinh doanh`
-                );
-                error.statusCode = 404;
-                error.code = "PRODUCT_NOT_FOUND";
-                throw error;
+                throw createError(`Sản phẩm ${item.productId} không tồn tại hoặc không hoạt động`,"PRODUCT_NOT_AVAILABLE");
             }
 
             const product = productResult.recordset[0];
             const unitPrice = Number(product.price);
             const quantity = item.quantity;
 
-            // Discount mặc định bằng 0
-            const discount = 0;
-
-            const lineTotal = unitPrice * quantity - discount;
-
-            totalAmount += lineTotal;
-
+            // Quy đổi sang số nguyên cent để hạn chế sai số số thực
+            const unitPriceCents = Math.round(unitPrice * 100);
+            const lineTotalCents = unitPriceCents * quantity;
+            totalAmountCents += lineTotalCents;
             invoiceDetails.push({
+                invoiceDetailId: crypto.randomUUID(),
                 productId: product.productId,
+                productName: product.productName,
                 quantity,
                 unitPrice,
-                discount
+                discount: 0
             });
         }
-
-        totalAmount = Number(totalAmount.toFixed(2));
-
-        const invoiceId = randomUUID();
-
-        // Tạo hóa đơn
+        const totalAmount = totalAmountCents / 100;
         await new sql.Request(transaction)
             .input("invoiceId", sql.VarChar(36), invoiceId)
             .input("customerId", sql.VarChar(36), data.customerId)
@@ -153,15 +166,14 @@ async function createInvoice(data) {
                 )
             `);
 
-        // Tạo chi tiết hóa đơn
         for (const detail of invoiceDetails) {
             await new sql.Request(transaction)
-                .input("invoiceDetailId", sql.VarChar(36), randomUUID())
+                .input("invoiceDetailId", sql.VarChar(36), detail.invoiceDetailId)
                 .input("invoiceId", sql.VarChar(36), invoiceId)
                 .input("productId", sql.VarChar(36), detail.productId)
                 .input("quantity", sql.Int, detail.quantity)
                 .input("unitPrice", sql.Decimal(18, 2), detail.unitPrice)
-                .input("discount", sql.Decimal(18, 2), detail.discount)
+                .input("discount", sql.Decimal(18, 2), 0)
                 .query(`
                     INSERT INTO InvoiceDetails (
                         invoiceDetailId,
@@ -181,130 +193,91 @@ async function createInvoice(data) {
                     )
                 `);
         }
-
         await transaction.commit();
-
         return await findInvoiceById(invoiceId);
     } catch (error) {
-        try {
-            await transaction.rollback();
-        } catch (_) {}
-
+        await transaction.rollback();
         throw error;
     }
 }
 
-// Xác nhận khách đã thanh toán tiền mặt
+// Xác nhận thanh toán hóa đơn và tạo giao dịch tích điểm
 async function payInvoice(invoiceId) {
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
 
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
     try {
-        await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-
-        // Khóa hóa đơn trong lúc xử lý để tránh thanh toán hai lần
         const invoiceResult = await new sql.Request(transaction)
             .input("invoiceId", sql.VarChar(36), invoiceId)
             .query(`
-                SELECT *
-                FROM Invoices WITH (UPDLOCK, HOLDLOCK)
-                WHERE invoiceId = @invoiceId
+                SELECT
+                    i.invoiceId,
+                    i.customerId,
+                    i.ruleId,
+                    i.totalAmount,
+                    i.paymentStatus,
+                    r.pointRate,
+                    r.minimumAmount
+                FROM Invoices i WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN PointRules r ON r.ruleId = i.ruleId
+                WHERE i.invoiceId = @invoiceId
             `);
 
+        if (invoiceResult.recordset.length === 0) {
+            throw createError("Không tìm thấy hóa đơn", "INVOICE_NOT_FOUND");
+        }
         const invoice = invoiceResult.recordset[0];
-
-        if (!invoice) {
-            const error = new Error("Không tìm thấy hóa đơn");
-            error.statusCode = 404;
-            error.code = "INVOICE_NOT_FOUND";
-            throw error;
-        }
-
         if (invoice.paymentStatus !== "UNPAID") {
-            const error = new Error(
-                "Hóa đơn không ở trạng thái chưa thanh toán"
-            );
-            error.statusCode = 409;
-            error.code = "INVOICE_ALREADY_PROCESSED";
-            throw error;
+            throw createError("Chỉ có thể thanh toán hóa đơn chưa thanh toán","INVOICE_NOT_UNPAID");
         }
 
-        // Lấy quy tắc đã được gắn với hóa đơn khi tạo
-        const ruleResult = await new sql.Request(transaction)
-            .input("ruleId", sql.VarChar(36), invoice.ruleId)
-            .query(`
-                SELECT pointRate, minimumAmount
-                FROM PointRules
-                WHERE ruleId = @ruleId
-            `);
+        const totalAmount = Number(invoice.totalAmount);
+        const pointRate = Number(invoice.pointRate);
+        const minimumAmount = Number(invoice.minimumAmount);
 
-        if (ruleResult.recordset.length === 0) {
-            const error = new Error("Không tìm thấy quy tắc tích điểm");
-            error.statusCode = 404;
-            error.code = "POINT_RULE_NOT_FOUND";
-            throw error;
-        }
-
-        const rule = ruleResult.recordset[0];
-
-        // Tính điểm cơ bản
+        // 10.000 VNĐ = 1 điểm nếu pointRate = 10000
         let basePoint = 0;
-
-        if (Number(invoice.totalAmount) >= Number(rule.minimumAmount)) {
-            basePoint = Math.floor(
-                Number(invoice.totalAmount) / Number(rule.pointRate)
-            );
+        if (totalAmount >= minimumAmount) {
+            basePoint = Math.floor(totalAmount / pointRate);
         }
 
-        // Tính điểm thưởng từ Promotion có hiệu lực
+        // Tính điểm thưởng từ các Promotion đang có hiệu lực
         const promotionResult = await new sql.Request(transaction)
             .input("invoiceId", sql.VarChar(36), invoiceId)
             .query(`
                 SELECT
-                    COALESCE(
-                        SUM(p.bonusPoint * d.quantity),
-                        0
-                    ) AS bonusPoint
+                    COALESCE(SUM(p.bonusPoint * d.quantity), 0) AS bonusPoint
                 FROM InvoiceDetails d
-                INNER JOIN Promotions p
-                    ON p.productId = d.productId
+                INNER JOIN Promotions p ON p.productId = d.productId
                 WHERE d.invoiceId = @invoiceId
                   AND p.status = 'ACTIVE'
                   AND LOWER(p.promotionType) = 'bonus_point'
                   AND p.startDate <= GETDATE()
                   AND p.endDate >= GETDATE()
             `);
-
         const bonusPoint = Number(
             promotionResult.recordset[0].bonusPoint
         );
 
         const totalPoint = basePoint + bonusPoint;
-
-        // Cập nhật hóa đơn đã thanh toán
+        // Xác nhận hóa đơn đã thanh toán
         await new sql.Request(transaction)
             .input("invoiceId", sql.VarChar(36), invoiceId)
             .input("totalPoint", sql.Int, totalPoint)
             .query(`
                 UPDATE Invoices
-                SET
-                    paymentStatus = 'PAID',
+                SET paymentStatus = 'PAID',
                     totalPoint = @totalPoint
                 WHERE invoiceId = @invoiceId
+                  AND paymentStatus = 'UNPAID'
             `);
 
-        let pointTransactionId = null;
-
-        // Chỉ tạo giao dịch nếu hóa đơn có điểm tích lũy
+        // Chỉ tạo giao dịch EARN PENDING.
+        // Blockchain sẽ xử lý và xác nhận sau.
         if (totalPoint > 0) {
-            pointTransactionId = randomUUID();
-
             await new sql.Request(transaction)
-                .input(
-                    "transactionId",
-                    sql.VarChar(36),
-                    pointTransactionId
-                )
+                .input("transactionId", sql.VarChar(36), crypto.randomUUID())
                 .input("customerId", sql.VarChar(36), invoice.customerId)
                 .input("invoiceId", sql.VarChar(36), invoiceId)
                 .input("point", sql.Int, totalPoint)
@@ -331,24 +304,10 @@ async function payInvoice(invoiceId) {
                     )
                 `);
         }
-
         await transaction.commit();
-
-        return {
-            invoiceId,
-            paymentStatus: "PAID",
-            totalAmount: Number(invoice.totalAmount),
-            basePoint,
-            bonusPoint,
-            totalPoint,
-            pointTransactionId,
-            blockchainStatus: totalPoint > 0 ? "PENDING" : null
-        };
+        return await findInvoiceById(invoiceId);
     } catch (error) {
-        try {
-            await transaction.rollback();
-        } catch (_) {}
-
+        await transaction.rollback();
         throw error;
     }
 }
@@ -356,86 +315,44 @@ async function payInvoice(invoiceId) {
 // Hủy hóa đơn chưa thanh toán
 async function cancelInvoice(invoiceId) {
     const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-    const result = await pool.request()
-        .input("invoiceId", sql.VarChar(36), invoiceId)
-        .query(`
-            UPDATE Invoices
-            SET paymentStatus = 'CANCELLED'
-            WHERE invoiceId = @invoiceId
-              AND paymentStatus = 'UNPAID';
+    try {
+        const result = await new sql.Request(transaction)
+            .input("invoiceId", sql.VarChar(36), invoiceId)
+            .query(`
+                UPDATE Invoices
+                SET paymentStatus = 'CANCELLED'
+                WHERE invoiceId = @invoiceId
+                  AND paymentStatus = 'UNPAID';
 
-            SELECT @@ROWCOUNT AS affectedRows;
-        `);
+                SELECT @@ROWCOUNT AS affectedRows;
+            `);
 
-    if (result.recordset[0].affectedRows === 0) {
-        const invoice = await findInvoiceById(invoiceId);
-
-        if (!invoice) {
-            const error = new Error("Không tìm thấy hóa đơn");
-            error.statusCode = 404;
-            error.code = "INVOICE_NOT_FOUND";
-            throw error;
+        if (result.recordset[0].affectedRows === 0) {
+            const exists = await new sql.Request(transaction)
+                .input("invoiceId", sql.VarChar(36), invoiceId)
+                .query(`
+                    SELECT invoiceId, paymentStatus
+                    FROM Invoices
+                    WHERE invoiceId = @invoiceId
+                `);
+            if (exists.recordset.length === 0) {
+                throw createError("Không tìm thấy hóa đơn", "INVOICE_NOT_FOUND");
+            }
+            throw createError("Chỉ có thể hủy hóa đơn chưa thanh toán","INVOICE_CANNOT_BE_CANCELLED");
         }
-
-        const error = new Error(
-            "Chỉ được hủy hóa đơn chưa thanh toán"
-        );
-        error.statusCode = 409;
-        error.code = "INVOICE_CANNOT_BE_CANCELLED";
+        await transaction.commit();
+        return await findInvoiceById(invoiceId);
+    } catch (error) {
+        await transaction.rollback();
         throw error;
     }
-
-    return await findInvoiceById(invoiceId);
 }
 
-// Xem chi tiết hóa đơn
-async function findInvoiceById(invoiceId) {
-    const pool = await poolPromise;
-
-    const invoiceResult = await pool.request()
-        .input("invoiceId", sql.VarChar(36), invoiceId)
-        .query(`
-            SELECT
-                i.*,
-                c.userId AS customerUserId,
-                u.fullName AS customerName,
-                s.employeeCode
-            FROM Invoices i
-            INNER JOIN Customers c ON i.customerId = c.userId
-            INNER JOIN Users u ON c.userId = u.userId
-            INNER JOIN Staffs s ON i.staffId = s.userId
-            WHERE i.invoiceId = @invoiceId
-        `);
-
-    if (invoiceResult.recordset.length === 0) {
-        return null;
-    }
-
-    const detailResult = await pool.request()
-        .input("invoiceId", sql.VarChar(36), invoiceId)
-        .query(`
-            SELECT
-                d.invoiceDetailId,
-                d.productId,
-                p.productName,
-                d.quantity,
-                d.unitPrice,
-                d.discount,
-                (d.quantity * d.unitPrice - d.discount) AS lineTotal
-            FROM InvoiceDetails d
-            INNER JOIN Products p ON d.productId = p.productId
-            WHERE d.invoiceId = @invoiceId
-        `);
-
-    return {
-        ...invoiceResult.recordset[0],
-        details: detailResult.recordset
-    };
-}
-
-// Danh sách hóa đơn
-async function findAllInvoices(filters) {
+// Lấy danh sách hóa đơn
+async function findAllInvoices(filters = {}) {
     const pool = await poolPromise;
     const request = pool.request();
 
@@ -443,49 +360,45 @@ async function findAllInvoices(filters) {
         SELECT
             i.invoiceId,
             i.customerId,
-            u.fullName AS customerName,
+            customer.fullName AS customerName,
             i.staffId,
+            staff.fullName AS staffName,
             i.ruleId,
             i.invoiceDate,
             i.totalAmount,
             i.totalPoint,
             i.paymentStatus
         FROM Invoices i
-        INNER JOIN Customers c ON i.customerId = c.userId
-        INNER JOIN Users u ON c.userId = u.userId
+        INNER JOIN Users customer ON customer.userId = i.customerId
+        INNER JOIN Users staff ON staff.userId = i.staffId
         WHERE 1 = 1
     `;
 
-    if (filters.status) {
-        query += ` AND i.paymentStatus = @status`;
-        request.input("status", sql.VarChar(20), filters.status);
+    if (filters.paymentStatus) {
+        query += " AND i.paymentStatus = @paymentStatus";
+        request.input("paymentStatus", sql.VarChar(20), filters.paymentStatus);
     }
-
     if (filters.customerId) {
-        query += ` AND i.customerId = @customerId`;
+        query += " AND i.customerId = @customerId";
         request.input("customerId", sql.VarChar(36), filters.customerId);
     }
-
     if (filters.fromDate) {
-        query += ` AND i.invoiceDate >= @fromDate`;
+        query += " AND i.invoiceDate >= @fromDate";
         request.input("fromDate", sql.DateTime, new Date(filters.fromDate));
     }
-
     if (filters.toDate) {
-        query += ` AND i.invoiceDate < DATEADD(DAY, 1, @toDate)`;
+        query += " AND i.invoiceDate < DATEADD(DAY, 1, @toDate)";
         request.input("toDate", sql.DateTime, new Date(filters.toDate));
     }
-
-    query += ` ORDER BY i.invoiceDate DESC`;
-
+    query += " ORDER BY i.invoiceDate DESC";
     const result = await request.query(query);
     return result.recordset;
 }
 
 module.exports = {
+    findInvoiceById,
     createInvoice,
     payInvoice,
     cancelInvoice,
-    findInvoiceById,
     findAllInvoices
 };

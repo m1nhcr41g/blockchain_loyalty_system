@@ -7,15 +7,9 @@ function createError(message, statusCode, code) {
     error.code = code;
     return error;
 }
-
 function validatePromotion(data) {
     const {
-        productId,
-        promotionName,
-        promotionType,
-        bonusPoint,
-        startDate,
-        endDate
+        productId,promotionName,promotionType,bonusPoint,startDate,endDate
     } = data;
 
     if (!productId || typeof productId !== "string") {
@@ -52,11 +46,9 @@ function validatePromotion(data) {
     if (!endDate || Number.isNaN(end.getTime())) {
         throw createError("Ngày kết thúc không hợp lệ", 400, "INVALID_END_DATE");
     }
-
     if (end < start) {
         throw createError("Ngày kết thúc không được trước ngày bắt đầu", 400, "INVALID_PROMOTION_DATE_RANGE");
     }
-
     return {
         productId: productId.trim(),
         promotionName: promotionName.trim(),
@@ -72,25 +64,19 @@ async function getAll(filters) {
     if (filters.status && !["ACTIVE", "INACTIVE"].includes(filters.status)) {
         throw createError("Trạng thái không hợp lệ", 400, "INVALID_PROMOTION_STATUS");
     }
-
     return await promotionRepository.getAll(filters);
 }
 
 // POST /promotions
 async function create(data) {
     const promotion = validatePromotion(data);
-
     const exists = await promotionRepository.productExists(promotion.productId);
-
     if (!exists) {
         throw createError("Không tìm thấy sản phẩm", 404, "PRODUCT_NOT_FOUND");
     }
-
     promotion.promotionId = randomUUID();
     promotion.status = "ACTIVE";
-
     await promotionRepository.create(promotion);
-
     return await promotionRepository.getById(promotion.promotionId);
 }
 
@@ -99,21 +85,15 @@ async function update(promotionId, data) {
     if (!promotionId) {
         throw createError("Thiếu promotionId", 400, "PROMOTION_ID_REQUIRED");
     }
-
     const existing = await promotionRepository.getById(promotionId);
-
     if (!existing) {
         throw createError("Không tìm thấy chương trình khuyến mãi", 404, "PROMOTION_NOT_FOUND");
     }
-
     const promotion = validatePromotion(data);
-
     const productExists = await promotionRepository.productExists(promotion.productId);
-
     if (!productExists) {
         throw createError("Không tìm thấy sản phẩm", 404, "PRODUCT_NOT_FOUND");
     }
-
     await promotionRepository.update(promotionId, promotion);
     return await promotionRepository.getById(promotionId);
 }
@@ -123,13 +103,10 @@ async function updateStatus(promotionId, status) {
     if (!promotionId) {
         throw createError("Thiếu promotionId", 400, "PROMOTION_ID_REQUIRED");
     }
-
     if (!["ACTIVE", "INACTIVE"].includes(status)) {
         throw createError("Trạng thái chỉ được là ACTIVE hoặc INACTIVE", 400, "INVALID_PROMOTION_STATUS");
     }
-
     const existing = await promotionRepository.getById(promotionId);
-
     if (!existing) {
         throw createError("Không tìm thấy chương trình khuyến mãi", 404, "PROMOTION_NOT_FOUND");
     }

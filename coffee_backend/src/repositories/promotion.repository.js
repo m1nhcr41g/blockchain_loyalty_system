@@ -3,9 +3,7 @@ const { sql, poolPromise } = require("../config/db");
 // Lấy danh sách chương trình khuyến mãi
 async function getAll(filters = {}) {
     const pool = await poolPromise;
-
     const request = pool.request();
-
     let query = `
         SELECT
             p.promotionId,
@@ -27,23 +25,18 @@ async function getAll(filters = {}) {
         query += ` AND p.status = @status`;
         request.input("status", sql.VarChar(20), filters.status);
     }
-
     if (filters.productId) {
         query += ` AND p.productId = @productId`;
         request.input("productId", sql.VarChar(36), filters.productId);
     }
-
     query += ` ORDER BY p.startDate DESC`;
-
     const result = await request.query(query);
-
     return result.recordset;
 }
 
 // Lấy chương trình khuyến mãi theo ID
 async function getById(promotionId) {
     const pool = await poolPromise;
-
     const result = await pool.request()
         .input("promotionId", sql.VarChar(36), promotionId)
         .query(`
@@ -69,7 +62,6 @@ async function getById(promotionId) {
 // Kiểm tra sản phẩm có tồn tại không
 async function productExists(productId) {
     const pool = await poolPromise;
-
     const result = await pool.request()
         .input("productId", sql.VarChar(36), productId)
         .query(`
@@ -77,14 +69,12 @@ async function productExists(productId) {
             FROM Products
             WHERE productId = @productId
         `);
-
     return result.recordset.length > 0;
 }
 
 // Tạo chương trình khuyến mãi
 async function create(data) {
     const pool = await poolPromise;
-
     const result = await pool.request()
         .input("promotionId", sql.VarChar(36), data.promotionId)
         .input("productId", sql.VarChar(36), data.productId)
@@ -124,7 +114,6 @@ async function create(data) {
 // Cập nhật chương trình khuyến mãi
 async function update(promotionId, data) {
     const pool = await poolPromise;
-
     const result = await pool.request()
         .input("promotionId", sql.VarChar(36), promotionId)
         .input("productId", sql.VarChar(36), data.productId)
@@ -155,7 +144,6 @@ async function update(promotionId, data) {
 // Cập nhật trạng thái chương trình khuyến mãi
 async function updateStatus(promotionId, status) {
     const pool = await poolPromise;
-
     const result = await pool.request()
         .input("promotionId", sql.VarChar(36), promotionId)
         .input("status", sql.VarChar(20), status)
@@ -168,7 +156,6 @@ async function updateStatus(promotionId, status) {
             FROM Promotions
             WHERE promotionId = @promotionId;
         `);
-
     return result.recordset[0] || null;
 }
 

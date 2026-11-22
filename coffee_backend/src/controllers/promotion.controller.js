@@ -7,9 +7,7 @@ async function getAll(req, res, next) {
             status: req.query.status,
             productId: req.query.productId
         };
-
         const promotions = await promotionService.getAll(filters);
-
         return res.status(200).json({
             success: true,
             message: "Lấy danh sách chương trình khuyến mãi thành công",
@@ -25,7 +23,6 @@ async function getAll(req, res, next) {
 async function create(req, res, next) {
     try {
         const promotion = await promotionService.create(req.body);
-
         return res.status(201).json({
             success: true,
             message: "Tạo chương trình khuyến mãi thành công",
@@ -44,7 +41,6 @@ async function update(req, res, next) {
             req.params.id,
             req.body
         );
-
         return res.status(200).json({
             success: true,
             message: "Cập nhật chương trình khuyến mãi thành công",
@@ -63,7 +59,6 @@ async function updateStatus(req, res, next) {
             req.params.id,
             req.body.status
         );
-
         return res.status(200).json({
             success: true,
             message: "Cập nhật trạng thái chương trình khuyến mãi thành công",

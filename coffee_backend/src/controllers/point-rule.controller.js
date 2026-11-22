@@ -4,9 +4,7 @@ const pointRuleService = require("../services/point-rule.service");
 async function getAllPointRules(req, res, next) {
     try {
         const { status } = req.query;
-
         const data = await pointRuleService.getAllPointRules(status);
-
         return res.status(200).json({
             success: true,
             message: status
@@ -24,7 +22,6 @@ async function getAllPointRules(req, res, next) {
 async function createPointRule(req, res, next) {
     try {
         const data = await pointRuleService.createPointRule(req.body);
-
         return res.status(201).json({
             success: true,
             message: "Tạo quy tắc tích điểm thành công",
@@ -43,7 +40,6 @@ async function updatePointRule(req, res, next) {
             req.params.id,
             req.body
         );
-
         return res.status(200).json({
             success: true,
             message: "Tạo phiên bản quy tắc tích điểm mới thành công",
