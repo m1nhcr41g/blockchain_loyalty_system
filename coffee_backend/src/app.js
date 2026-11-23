@@ -1,15 +1,19 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-require('dotenv').config();
+const config = require('./config/env');
+const { poolPromise } = require('./config/db');
+const { checkBlockchainConnection } = require('./config/blockchain');
 
 const app = express();
-
+const path = require('path');
 // ==================== MIDDLEWARES CƠ BẢN ====================
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Cho phép trình duyệt/Frontend truy cập ảnh qua đường link http://localhost:5000/uploads/...
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // ==================== ROUTES ====================
 
@@ -22,19 +26,29 @@ app.get('/', (req, res) => {
   });
 });
 
-// Route kiểm tra trạng thái server (Health Check)
-app.get('/api/v1/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Coffee Loyalty Blockchain API đang hoạt động!',
-    data: null,
-    error: null
-  });
+// Route kiểm tra trạng thái server & kết nối Database (Health Check)
+app.get('/api/v1/health', async (req, res, next) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request().query('SELECT 1 AS ok');
+
+    res.status(200).json({
+      success: true,
+      message: 'Coffee Loyalty Blockchain API & SQL Server đang hoạt động!',
+      data: {
+        database: 'CONNECTED',
+        timestamp: new Date().toISOString()
+      },
+      error: null
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
+const routes = require('./routes');
+app.use('/api/v1', routes);
 
-// const routes = require('./routes');
-// app.use('/api/v1', routes);
 
 // ==================== JSON SYNTAX ERROR HANDLER ====================
 app.use((err, req, res, next) => {
@@ -76,19 +90,26 @@ app.use((err, req, res, next) => {
 
   if (!err.code) {
     switch (statusCode) {
-      case 400: errorCode = 'BAD_REQUEST';
+      case 400:
+        errorCode = 'BAD_REQUEST';
         break;
-      case 401: errorCode = 'UNAUTHORIZED';
+      case 401:
+        errorCode = 'UNAUTHORIZED';
         break;
-      case 403: errorCode = 'FORBIDDEN';
+      case 403:
+        errorCode = 'FORBIDDEN';
         break;
-      case 404: errorCode = 'NOT_FOUND';
+      case 404:
+        errorCode = 'NOT_FOUND';
         break;
-      case 409: errorCode = 'CONFLICT';
+      case 409:
+        errorCode = 'CONFLICT';
         break;
-      case 500: errorCode = 'INTERNAL_SERVER_ERROR';
+      case 500:
+        errorCode = 'INTERNAL_SERVER_ERROR';
         break;
-      case 502: errorCode = 'BLOCKCHAIN_ERROR';
+      case 502:
+        errorCode = 'BLOCKCHAIN_ERROR';
         break;
       default:
         errorCode = 'UNKNOWN_ERROR';
@@ -107,11 +128,21 @@ app.use((err, req, res, next) => {
 
 // ==================== START SERVER ====================
 if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
+  const startServer = async () => {
+    try {
+      await poolPromise;
+      await checkBlockchainConnection();
 
-  app.listen(PORT, () => {
-    console.log(`Server đang chạy tại: http://localhost:${PORT}`);
-  });
+      app.listen(config.port, () => {
+        console.log(`Server đang chạy tại: http://localhost:${config.port}`);
+      });
+    } catch (err) {
+      console.error('Khởi động server thất bại:', err.message);
+      process.exit(1);
+    }
+  };
+
+  startServer();
 }
 
 module.exports = app;
