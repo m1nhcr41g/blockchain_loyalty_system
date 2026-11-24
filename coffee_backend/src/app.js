@@ -1,17 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const path = require('path');
 const config = require('./config/env');
 const { poolPromise } = require('./config/db');
 const { checkBlockchainConnection } = require('./config/blockchain');
+const routes = require('./routes');
 
 const app = express();
-const path = require('path');
+
 // ==================== MIDDLEWARES CƠ BẢN ====================
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 // Cho phép trình duyệt/Frontend truy cập ảnh qua đường link http://localhost:5000/uploads/...
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -46,9 +49,8 @@ app.get('/api/v1/health', async (req, res, next) => {
   }
 });
 
-const routes = require('./routes');
+// Gắn toàn bộ API routes
 app.use('/api/v1', routes);
-
 
 // ==================== JSON SYNTAX ERROR HANDLER ====================
 app.use((err, req, res, next) => {

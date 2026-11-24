@@ -13,3 +13,16 @@ logs/
 *.log
 
 uploads/
+artifacts/
+cache/
+typechain/
+typechain-types/
+coverage/
+coverage.json
+ignition/deployments/
+dist/
+dist-ssr/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
