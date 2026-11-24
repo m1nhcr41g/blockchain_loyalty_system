@@ -21,11 +21,11 @@ const dbConfig = {
 const poolPromise = new sql.ConnectionPool(dbConfig)
     .connect()
     .then((pool) => {
-        console.log(`✅ Đã kết nối thành công tới SQL Server [${config.db.database}]`);
+        console.log(`da ket noi thanh cong toi sql server [${config.db.database}]`);
         return pool;
     })
     .catch((err) => {
-        console.error('❌ Lỗi kết nối SQL Server:', err.message);
+        console.error('loi ket noi toi sql server', err.message);
         process.exit(1);
     });
 
