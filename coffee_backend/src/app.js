@@ -6,12 +6,14 @@ const { poolPromise } = require('./config/db');
 const { checkBlockchainConnection } = require('./config/blockchain');
 
 const app = express();
+const routes = require('./routes');
 
 // ==================== MIDDLEWARES CƠ BẢN ====================
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/api/v1', routes);
 
 // ==================== ROUTES ====================
 
@@ -44,8 +46,8 @@ app.get('/api/v1/health', async (req, res, next) => {
   }
 });
 
-const routes = require('./routes');
-app.use('/api/v1', routes);
+// const routes = require('./routes');
+// app.use('/api/v1', routes);
 
 // ==================== JSON SYNTAX ERROR HANDLER ====================
 app.use((err, req, res, next) => {
