@@ -32,7 +32,11 @@ function handleError(res, error) {
 
 async function createRedemption(req, res) {
     try {
-        const redemption = await redemptionService.createRedemption(req.body);
+        const redemption = await redemptionService.createRedemption({
+            ...req.body,
+            customerId: req.user.userId
+        });
+
         return res.status(201).json({
             success: true,
             message: "Tạo yêu cầu đổi quà thành công",
@@ -46,9 +50,9 @@ async function createRedemption(req, res) {
 
 async function getMyRedemptions(req, res) {
     try {
-        const customerId = req.query.customerId;
         const redemptions =
-            await redemptionService.getMyRedemptions(customerId);
+            await redemptionService.getMyRedemptions(req.user.userId);
+
         return res.status(200).json({
             success: true,
             message: "Lấy lịch sử đổi quà thành công",
@@ -81,7 +85,7 @@ async function deliverRedemption(req, res) {
     try {
         const redemption = await redemptionService.deliverRedemption(
             req.params.id,
-            req.body.staffId
+            req.user.userId
         );
 
         return res.status(200).json({

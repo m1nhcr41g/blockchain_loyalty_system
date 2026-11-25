@@ -1,7 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const invoiceController = require("../controllers/invoice.controller");
+const {verifyToken,authorizeRoles} = require("../middlewares/auth.middleware");
 
+// Tất cả API Invoice chỉ STAFF được sử dụng
+router.use(verifyToken, authorizeRoles("STAFF"));
 // Tạo hóa đơn
 router.post("/", invoiceController.createInvoice);
 // Xác nhận thanh toán tiền mặt

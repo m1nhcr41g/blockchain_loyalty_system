@@ -11,7 +11,7 @@ async function createInvoice(data) {
         throw createError("customerId là bắt buộc", "CUSTOMER_ID_REQUIRED");
     }
     if (!data.staffId) {
-        throw createError("staffId là bắt buộc", "STAFF_ID_REQUIRED");
+        throw createError("Không xác định được nhân viên đăng nhập", "STAFF_ID_REQUIRED");
     }
     if (!Array.isArray(data.items) || data.items.length === 0) {
         throw createError("Hóa đơn phải có ít nhất một sản phẩm", "ITEMS_REQUIRED");
@@ -20,17 +20,13 @@ async function createInvoice(data) {
         if (!item.productId) {
             throw createError("productId là bắt buộc", "PRODUCT_ID_REQUIRED");
         }
-        if (
-            !Number.isInteger(item.quantity) ||
-            item.quantity <= 0
-        ) {
+        if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
             throw createError(
                 "quantity phải là số nguyên lớn hơn 0",
                 "INVALID_QUANTITY"
             );
         }
     }
-
     return await invoiceRepository.createInvoice(data);
 }
 

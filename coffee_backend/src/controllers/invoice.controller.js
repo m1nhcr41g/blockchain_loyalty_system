@@ -37,8 +37,10 @@ function handleError(res, error) {
 // POST /invoices
 async function createInvoice(req, res) {
     try {
-        const invoice = await invoiceService.createInvoice(req.body);
-
+        const invoice = await invoiceService.createInvoice({
+            ...req.body,
+            staffId: req.user.userId
+        });
         return res.status(201).json({
             success: true,
             message: "Tạo hóa đơn thành công",
