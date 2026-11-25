@@ -1,4 +1,5 @@
 const invoiceRepository = require("../repositories/invoice.repository");
+const blockchainService = require("./blockchain.service");
 
 function createError(message, code) {
     const error = new Error(message);
@@ -98,7 +99,29 @@ async function getAllInvoices(filters) {
 
     return await invoiceRepository.findAllInvoices(filters);
 }
+async function payInvoice(invoiceId) {
+    if (!invoiceId) {
+        throw createError("invoiceId là bắt buộc", "INVOICE_ID_REQUIRED");
+    }
 
+    const result = await invoiceRepository.payInvoice(invoiceId);
+    if (result.pendingTransactionId) {
+        try {
+            const blockchainTx = await blockchainService.processPendingTransaction(
+                result.pendingTransactionId
+            );
+            result.blockchainTransaction = blockchainTx;
+        } catch (bcError) {
+            result.blockchainTransaction = {
+                transactionId: result.pendingTransactionId,
+                status: "FAILED",
+                error: bcError.message
+            };
+        }
+    }
+    delete result.pendingTransactionId;
+    return result;
+}
 module.exports = {
     createInvoice,
     payInvoice,

@@ -168,8 +168,8 @@ async function createRedemption(data) {
             `);
 
         await transaction.commit();
-
-        return await findRedemptionById(redemptionId);
+        const createdRedemption = await findRedemptionById(redemptionId);
+        return { ...createdRedemption, pendingTransactionId: transactionId };
     } catch (error) {
         await transaction.rollback();
         throw error;

@@ -27,7 +27,7 @@ const getTransactionsById = async(req,res,next)=>{
 const getTransactionsByHash = async(req,res,next)=>{
     try {
         const data = await blockchainService.getTransactionsByHash(req.params.txHash);
-        req.status(200).json({success:true, message:'doi soat giao dich blockchain thanh cong',data, error:null});
+        res.status(200).json({success:true, message:'doi soat giao dich blockchain thanh cong',data, error:null});
     } catch (err) {
         next(err);
     }
@@ -35,8 +35,8 @@ const getTransactionsByHash = async(req,res,next)=>{
 
 const retryTransaction = async(req,res,next)=>{
     try {
-        const data = await blockchainService.retryFailedTransaction(req.page.id);
-        req.status(200).json({success: true, message:'gui lai giao dich thanh cong',data,error:null});
+        const data = await blockchainService.retryFailedTransaction(req.params.id);
+        res.status(200).json({success: true, message:'gui lai giao dich thanh cong',data,error:null});
     } catch (err) {
         next(err);
     }
