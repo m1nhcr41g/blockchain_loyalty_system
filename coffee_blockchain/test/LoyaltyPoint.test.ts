@@ -9,7 +9,7 @@ describe("Loyalty Contract",function(){
         await contract.earnPoints(customer.address, 50, "INV-001");
         expect(await contract.balanceOf(customer.address)).to.equal(50n);//test tich diem tu hoa don
         await expect(
-            contract.earnPoint(customer.address,50,"INV-001")
+            contract.earnPoints(customer.address,50,"INV-001")
         ).to.be.revertedWith("hoa don da dc tich diem") //test chong lap hoa don
         await contract.redeemPoints(customer.address,20, "RED-001");
         expect(await contract.balanceOf(customer.address)).to.equal(30n)
