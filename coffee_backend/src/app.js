@@ -5,8 +5,6 @@ const path = require('path');
 const config = require('./config/env');
 const { poolPromise } = require('./config/db');
 const { checkBlockchainConnection } = require('./config/blockchain');
-const routes = require('./routes');
-
 const app = express();
 const routes = require('./routes');
 
@@ -15,7 +13,6 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/api/v1', routes);
 
 // Cho phép trình duyệt/Frontend truy cập ảnh qua đường link http://localhost:5000/uploads/...
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -134,8 +131,11 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   const startServer = async () => {
     try {
+      console.log('1. Đang kết nối SQL Server...');
       await poolPromise;
+      console.log('2. SQL Server OK! Đang kết nối Blockchain...');
       await checkBlockchainConnection();
+      console.log('3. Blockchain OK! Đang mở cổng...');
 
       app.listen(config.port, () => {
         console.log(`Server đang chạy tại: http://localhost:${config.port}`);

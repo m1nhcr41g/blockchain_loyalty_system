@@ -1,4 +1,5 @@
 const redemptionRepository = require("../repositories/redemption.repository");
+const blockchainService = require("./blockchain.service");
 
 function createError(message, code) {
     const error = new Error(message);
@@ -8,18 +9,16 @@ function createError(message, code) {
 
 async function createRedemption(data) {
     if (!data.customerId) {
-        throw createError(
-            "customerId là bắt buộc",
-            "CUSTOMER_ID_REQUIRED"
-        );
+        throw createError("customerId là bắt buộc", "CUSTOMER_ID_REQUIRED");
     }
     if (!data.rewardId) {
-        throw createError(
-            "rewardId là bắt buộc",
-            "REWARD_ID_REQUIRED"
-        );
+        throw createError("rewardId là bắt buộc", "REWARD_ID_REQUIRED");
     }
-    return await redemptionRepository.createRedemption(data);
+    const result = await redemptionRepository.createRedemption(data);
+    if (result.pendingTransactionId) {
+        await blockchainService.processPendingTransaction(result.pendingTransactionId);
+    }
+    return await redemptionRepository.findRedemptionById(result.redemptionId);
 }
 
 async function getMyRedemptions(customerId) {

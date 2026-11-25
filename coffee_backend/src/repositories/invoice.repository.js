@@ -229,20 +229,18 @@ async function payInvoice(invoiceId) {
         }
         const invoice = invoiceResult.recordset[0];
         if (invoice.paymentStatus !== "UNPAID") {
-            throw createError("Chỉ có thể thanh toán hóa đơn chưa thanh toán","INVOICE_NOT_UNPAID");
+            throw createError("Chỉ có thể thanh toán hóa đơn chưa thanh toán", "INVOICE_NOT_UNPAID");
         }
 
         const totalAmount = Number(invoice.totalAmount);
         const pointRate = Number(invoice.pointRate);
         const minimumAmount = Number(invoice.minimumAmount);
 
-        // 10.000 VNĐ = 1 điểm nếu pointRate = 10000
         let basePoint = 0;
         if (totalAmount >= minimumAmount) {
             basePoint = Math.floor(totalAmount / pointRate);
         }
 
-        // Tính điểm thưởng từ các Promotion đang có hiệu lực
         const promotionResult = await new sql.Request(transaction)
             .input("invoiceId", sql.VarChar(36), invoiceId)
             .query(`
@@ -261,7 +259,6 @@ async function payInvoice(invoiceId) {
         );
 
         const totalPoint = basePoint + bonusPoint;
-        // Xác nhận hóa đơn đã thanh toán
         await new sql.Request(transaction)
             .input("invoiceId", sql.VarChar(36), invoiceId)
             .input("totalPoint", sql.Int, totalPoint)
@@ -273,11 +270,11 @@ async function payInvoice(invoiceId) {
                   AND paymentStatus = 'UNPAID'
             `);
 
-        // Chỉ tạo giao dịch EARN PENDING.
-        // Blockchain sẽ xử lý và xác nhận sau.
+        let pendingTransactionId = null;
         if (totalPoint > 0) {
+            pendingTransactionId = crypto.randomUUID();
             await new sql.Request(transaction)
-                .input("transactionId", sql.VarChar(36), crypto.randomUUID())
+                .input("transactionId", sql.VarChar(36), pendingTransactionId)
                 .input("customerId", sql.VarChar(36), invoice.customerId)
                 .input("invoiceId", sql.VarChar(36), invoiceId)
                 .input("point", sql.Int, totalPoint)
@@ -305,7 +302,11 @@ async function payInvoice(invoiceId) {
                 `);
         }
         await transaction.commit();
-        return await findInvoiceById(invoiceId);
+        const paidInvoice = await findInvoiceById(invoiceId);
+        return {
+            ...paidInvoice,
+            pendingTransactionId
+        };
     } catch (error) {
         await transaction.rollback();
         throw error;
