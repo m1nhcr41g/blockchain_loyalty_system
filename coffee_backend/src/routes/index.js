@@ -10,5 +10,8 @@ router.use('/products', require('./product.route'));
 router.use('/promotions', require('./promotion.route'));
 router.use('/rewards', require('./reward.route'));
 router.use('/transactions', transactionRoutes);
+router.use('/point-rules', require('./point-rule.routes'));
+router.use('/invoices', require('./invoice.routes'));
+router.use('/redemptions', require('./redemption.routes'));
 
 module.exports = router;

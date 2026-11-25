@@ -24,6 +24,7 @@
     "uuid": "^14.0.3"
   },
   "devDependencies": {
+    "multer": "^2.5.0",
     "nodemon": "^3.1.14"
   }
 }

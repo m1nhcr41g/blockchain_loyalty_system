@@ -8,12 +8,14 @@ const { checkBlockchainConnection } = require('./config/blockchain');
 const routes = require('./routes');
 
 const app = express();
+const routes = require('./routes');
 
 // ==================== MIDDLEWARES CƠ BẢN ====================
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/api/v1', routes);
 
 // Cho phép trình duyệt/Frontend truy cập ảnh qua đường link http://localhost:5000/uploads/...
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
